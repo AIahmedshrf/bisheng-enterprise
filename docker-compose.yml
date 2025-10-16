@@ -1,0 +1,639 @@
+# ============================================
+# Bisheng Enterprise - Main Orchestrator
+# ============================================
+version: '3.8'
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  bisheng-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET:-172.28.0.0/16}
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  milvus-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  minio-data:
+    driver: local
+  etcd-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  backup-data:
+    driver: local
+  ssl-certs:
+    driver: local
+  model-cache:
+    driver: local
+
+# ============================================
+# Services - Import from modular files
+# ============================================
+services:
+  # ============================================
+  # Reverse Proxy & Load Balancer
+  # ============================================
+  nginx:
+    image: nginx:${NGINX_VERSION:-1.25-alpine}
+    container_name: bisheng-nginx
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_HTTP_PORT:-80}:80"
+      - "${FRONTEND_PORT:-443}:443"
+    volumes:
+      - ./configs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./configs/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - bisheng-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.bisheng.service=nginx"
+      - "com.bisheng.description=Reverse Proxy and Load Balancer"
+
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-15-alpine}
+    container_name: bisheng-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./configs/postgresql/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./configs/postgresql/init-scripts:/docker-entrypoint-initdb.d:ro
+      - ./data/backups/postgres:/backups
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - bisheng-network
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    deploy:
+      resources:
+        limits:
+          cpus: '${POSTGRES_CPU_LIMIT:-2}'
+          memory: ${POSTGRES_MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.bisheng.service=postgres"
+      - "com.bisheng.description=Primary Database"
+
+  # ============================================
+  # Redis Cache & Queue
+  # ============================================
+  redis:
+    image: redis:${REDIS_VERSION:-7.2-alpine}
+    container_name: bisheng-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory ${REDIS_MAX_MEMORY:-2gb}
+      --maxmemory-policy ${REDIS_MAX_MEMORY_POLICY:-allkeys-lru}
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - redis-data:/data
+      - ./configs/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - bisheng-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    labels:
+      - "com.bisheng.service=redis"
+      - "com.bisheng.description=Cache and Message Queue"
+
+  # ============================================
+  # MinIO Object Storage
+  # ============================================
+  minio:
+    image: minio/minio:${MINIO_VERSION}
+    container_name: bisheng-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    volumes:
+      - minio-data:/data
+      - ./data/backups/minio:/backups
+    ports:
+      - "${MINIO_PORT:-9100}:9000"
+      - "${MINIO_CONSOLE_PORT:-9101}:9001"
+    networks:
+      - bisheng-network
+    command: server /data --console-address ":9001"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.bisheng.service=minio"
+      - "com.bisheng.description=Object Storage"
+
+  # ============================================
+  # Etcd for Milvus
+  # ============================================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: bisheng-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: 1000
+      ETCD_QUOTA_BACKEND_BYTES: 4294967296
+      ETCD_SNAPSHOT_COUNT: 50000
+    volumes:
+      - etcd-data:/etcd
+    networks:
+      - bisheng-network
+    command: >
+      etcd
+      -advertise-client-urls=http://127.0.0.1:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    labels:
+      - "com.bisheng.service=etcd"
+      - "com.bisheng.description=Milvus Metadata Store"
+
+  # ============================================
+  # Milvus Vector Database
+  # ============================================
+  milvus:
+    image: milvusdb/milvus:${MILVUS_VERSION}
+    container_name: bisheng-milvus
+    restart: unless-stopped
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - milvus-data:/var/lib/milvus
+      - ./configs/milvus/milvus.yaml:/milvus/configs/milvus.yaml:ro
+    ports:
+      - "${MILVUS_PORT:-19530}:19530"
+      - "9091:9091"
+    networks:
+      - bisheng-network
+    command: ["milvus", "run", "standalone"]
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '${MILVUS_CPU_LIMIT:-2}'
+          memory: ${MILVUS_MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+    labels:
+      - "com.bisheng.service=milvus"
+      - "com.bisheng.description=Vector Database"
+
+  # ============================================
+  # Elasticsearch
+  # ============================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION}
+    container_name: bisheng-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      ELASTIC_PASSWORD: ${ELASTICSEARCH_PASSWORD}
+      xpack.security.enabled: "true"
+      xpack.security.enrollment.enabled: "true"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+      bootstrap.memory_lock: "true"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+      - ./configs/elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - ./data/backups/elasticsearch:/backups
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+      - "9300:9300"
+    networks:
+      - bisheng-network
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      resources:
+        limits:
+          cpus: '${ES_CPU_LIMIT:-2}'
+          memory: ${ES_MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f -u elastic:${ELASTICSEARCH_PASSWORD} http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "com.bisheng.service=elasticsearch"
+      - "com.bisheng.description=Full-text Search Engine"
+
+  # ============================================
+  # Bisheng Backend (with custom image)
+  # ============================================
+  backend:
+    build:
+      context: ./custom-images/backend
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: dataelement/bisheng-backend:${BISHENG_VERSION}
+    image: bisheng-backend-enterprise:latest
+    container_name: bisheng-backend
+    restart: unless-stopped
+    environment:
+      # Database
+      DATABASE_URL: ${DATABASE_URL}
+      
+      # Redis
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_REDIS_URL}
+      
+      # Milvus
+      MILVUS_HOST: ${MILVUS_HOST}
+      MILVUS_PORT: ${MILVUS_PORT}
+      
+      # Elasticsearch
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL}
+      ELASTICSEARCH_PASSWORD: ${ELASTICSEARCH_PASSWORD}
+      
+      # MinIO
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      
+      # Application
+      BISHENG_ADMIN_USER: ${BISHENG_ADMIN_USER}
+      BISHENG_ADMIN_PASSWORD: ${BISHENG_ADMIN_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      LOG_LEVEL: ${LOG_LEVEL}
+      
+      # API Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      
+      # Features
+      ENABLE_FINE_TUNING: ${ENABLE_FINE_TUNING}
+      ENABLE_OFFICE_PROCESSING: ${ENABLE_OFFICE_PROCESSING}
+      ENABLE_OCR: ${ENABLE_OCR}
+      
+      # Security
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      
+      # Python
+      PYTHONUNBUFFERED: 1
+      USER_AGENT: Bisheng-Enterprise/2.0
+    volumes:
+      - ./configs/bisheng/config.yaml:/app/bisheng/config.yaml:ro
+      - model-cache:/app/cache
+      - ./logs/backend:/app/logs
+    ports:
+      - "${BACKEND_PORT:-7860}:7860"
+    networks:
+      - bisheng-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    deploy:
+      replicas: ${BACKEND_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: '${BACKEND_CPU_LIMIT:-2}'
+          memory: ${BACKEND_MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "com.bisheng.service=backend"
+      - "com.bisheng.description=Bisheng API Server"
+
+  # ============================================
+  # Bisheng Backend Workers
+  # ============================================
+  backend-worker:
+    build:
+      context: ./custom-images/backend
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: dataelement/bisheng-backend:${BISHENG_VERSION}
+    image: bisheng-backend-enterprise:latest
+    container_name: bisheng-backend-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "bisheng.worker", "worker", "--loglevel=info", "--concurrency=${CELERY_WORKER_CONCURRENCY:-4}"]
+    environment:
+      # Same as backend
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_REDIS_URL}
+      MILVUS_HOST: ${MILVUS_HOST}
+      MILVUS_PORT: ${MILVUS_PORT}
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL}
+      ELASTICSEARCH_PASSWORD: ${ELASTICSEARCH_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      SECRET_KEY: ${SECRET_KEY}
+      LOG_LEVEL: ${LOG_LEVEL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      PYTHONUNBUFFERED: 1
+      
+      # Celery specific
+      CELERY_TASK_TIME_LIMIT: ${CELERY_TASK_TIME_LIMIT}
+      CELERY_TASK_SOFT_TIME_LIMIT: ${CELERY_TASK_SOFT_TIME_LIMIT}
+    volumes:
+      - ./configs/bisheng/config.yaml:/app/bisheng/config.yaml:ro
+      - model-cache:/app/cache
+      - ./logs/worker:/app/logs
+    networks:
+      - bisheng-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKER_REPLICAS:-3}
+      resources:
+        limits:
+          cpus: '${WORKER_CPU_LIMIT:-2}'
+          memory: ${WORKER_MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: '1'
+          memory: 2G
+    labels:
+      - "com.bisheng.service=backend-worker"
+      - "com.bisheng.description=Celery Workers"
+
+  # ============================================
+  # Bisheng Frontend
+  # ============================================
+  frontend:
+    build:
+      context: ./custom-images/frontend
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: dataelement/bisheng-frontend:${BISHENG_VERSION}
+    image: bisheng-frontend-enterprise:latest
+    container_name: bisheng-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:7860
+      NODE_ENV: production
+    volumes:
+      - ./configs/frontend/config.json:/app/config.json:ro
+      - ./logs/frontend:/app/logs
+    ports:
+      - "3001:3001"
+    networks:
+      - bisheng-network
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.bisheng.service=frontend"
+      - "com.bisheng.description=Web Interface"
+
+  # ============================================
+  # Prometheus Monitoring
+  # ============================================
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-latest}
+    container_name: bisheng-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_DAYS:-30}d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./configs/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - bisheng-network
+    depends_on:
+      - backend
+      - postgres
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.bisheng.service=prometheus"
+      - "com.bisheng.description=Metrics Collection"
+
+  # ============================================
+  # Grafana Dashboards
+  # ============================================
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-latest}
+    container_name: bisheng-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS: redis-datasource,postgres-datasource
+      GF_SERVER_ROOT_URL: https://${DOMAIN_NAME}/grafana
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    networks:
+      - bisheng-network
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.bisheng.service=grafana"
+      - "com.bisheng.description=Monitoring Dashboards"
+
+  # ============================================
+  # Automated Backup Service
+  # ============================================
+  backup:
+    build:
+      context: ./custom-images/backup
+      dockerfile: Dockerfile
+    image: bisheng-backup:latest
+    container_name: bisheng-backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS}
+      S3_BACKUP_BUCKET: ${S3_BACKUP_BUCKET}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - backup-data:/backups
+      - ./scripts:/scripts:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - bisheng-network
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    labels:
+      - "com.bisheng.service=backup"
+      - "com.bisheng.description=Automated Backup Service"

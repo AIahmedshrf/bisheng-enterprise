@@ -1,0 +1,255 @@
+# ============================================
+# Bisheng Enterprise - Alert Rules
+# ============================================
+
+groups:
+  # ============================================
+  # Infrastructure Alerts
+  # ============================================
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      # Disk Space Low
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100 < 20
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk space is {{ $value }}% available on {{ $labels.instance }}"
+
+  # ============================================
+  # Application Alerts
+  # ============================================
+  - name: application
+    interval: 30s
+    rules:
+      # Backend Service Down
+      - alert: BackendServiceDown
+        expr: up{job="bisheng-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "Bisheng Backend service is down"
+          description: "Backend service {{ $labels.instance }} is down"
+
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} on {{ $labels.instance }}"
+
+      # Slow Response Time
+      - alert: SlowResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "Slow response time detected"
+          description: "95th percentile response time is {{ $value }}s"
+
+  # ============================================
+  # Database Alerts
+  # ============================================
+  - name: database
+    interval: 30s
+    rules:
+      # PostgreSQL Down
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL instance {{ $labels.instance }} is down"
+
+      # Too Many Connections
+      - alert: PostgreSQLTooManyConnections
+        expr: sum by (instance) (pg_stat_activity_count) > 180
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "PostgreSQL has too many connections"
+          description: "PostgreSQL has {{ $value }} connections on {{ $labels.instance }}"
+
+      # High Query Time
+      - alert: PostgreSQLSlowQueries
+        expr: rate(pg_stat_statements_mean_time_seconds[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "PostgreSQL slow queries detected"
+          description: "Average query time is {{ $value }}s"
+
+      # Database Size Growing Fast
+      - alert: DatabaseGrowingFast
+        expr: rate(pg_database_size_bytes[1h]) > 1073741824
+        for: 1h
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Database growing rapidly"
+          description: "Database is growing at {{ $value }} bytes/hour"
+
+  # ============================================
+  # Redis Alerts
+  # ============================================
+  - name: redis
+    interval: 30s
+    rules:
+      # Redis Down
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: cache
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance {{ $labels.instance }} is down"
+
+      # High Memory Usage
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          category: cache
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage is {{ $value }}%"
+
+      # Too Many Connections
+      - alert: RedisTooManyConnections
+        expr: redis_connected_clients > 1000
+        for: 5m
+        labels:
+          severity: warning
+          category: cache
+        annotations:
+          summary: "Too many Redis connections"
+          description: "Redis has {{ $value }} connections"
+
+  # ============================================
+  # Elasticsearch Alerts
+  # ============================================
+  - name: elasticsearch
+    interval: 30s
+    rules:
+      # Cluster Health Red
+      - alert: ElasticsearchClusterRed
+        expr: elasticsearch_cluster_health_status{color="red"} == 1
+        for: 5m
+        labels:
+          severity: critical
+          category: search
+        annotations:
+          summary: "Elasticsearch cluster status is RED"
+          description: "Elasticsearch cluster health is RED"
+
+      # Cluster Health Yellow
+      - alert: ElasticsearchClusterYellow
+        expr: elasticsearch_cluster_health_status{color="yellow"} == 1
+        for: 15m
+        labels:
+          severity: warning
+          category: search
+        annotations:
+          summary: "Elasticsearch cluster status is YELLOW"
+          description: "Elasticsearch cluster health is YELLOW"
+
+      # High JVM Memory Usage
+      - alert: ElasticsearchHighJVMMemory
+        expr: elasticsearch_jvm_memory_used_bytes / elasticsearch_jvm_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          category: search
+        annotations:
+          summary: "Elasticsearch JVM memory high"
+          description: "JVM memory usage is {{ $value }}%"
+
+  # ============================================
+  # MinIO Alerts
+  # ============================================
+  - name: minio
+    interval: 30s
+    rules:
+      # MinIO Offline
+      - alert: MinIOOffline
+        expr: minio_cluster_nodes_offline_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: storage
+        annotations:
+          summary: "MinIO nodes offline"
+          description: "{{ $value }} MinIO nodes are offline"
+
+      # Disk Space Low
+      - alert: MinIODiskSpaceLow
+        expr: minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes < 0.2
+        for: 5m
+        labels:
+          severity: warning
+          category: storage
+        annotations:
+          summary: "MinIO disk space low"
+          description: "Only {{ $value }}% disk space available"
+
+  # ============================================
+  # Milvus Alerts
+  # ============================================
+  - name: milvus
+    interval: 30s
+    rules:
+      # Milvus Down
+      - alert: MilvusDown
+        expr: up{job="milvus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: vectordb
+        annotations:
+          summary: "Milvus is down"
+          description: "Milvus instance {{ $labels.instance }} is down"

@@ -1,0 +1,71 @@
+# ============================================
+# Grafana Datasources Configuration
+# ============================================
+
+apiVersion: 1
+
+datasources:
+  # ============================================
+  # Prometheus
+  # ============================================
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      queryTimeout: 60s
+    version: 1
+
+  # ============================================
+  # PostgreSQL
+  # ============================================
+  - name: PostgreSQL
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: bisheng
+    user: bisheng_user
+    secureJsonData:
+      password: 'BiSheng@2024!Secure#PG'
+    jsonData:
+      sslmode: 'disable'
+      maxOpenConns: 10
+      maxIdleConns: 10
+      connMaxLifetime: 14400
+    editable: true
+    version: 1
+
+  # ============================================
+  # Redis
+  # ============================================
+  - name: Redis
+    type: redis-datasource
+    access: proxy
+    url: redis:6379
+    secureJsonData:
+      password: 'BiSheng@2024!Redis#Secure'
+    editable: true
+    version: 1
+
+  # ============================================
+  # Elasticsearch
+  # ============================================
+  - name: Elasticsearch
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    database: '[logs-]YYYY.MM.DD'
+    basicAuth: true
+    basicAuthUser: elastic
+    secureJsonData:
+      basicAuthPassword: 'BiSheng@2024!ES#Secure'
+    jsonData:
+      esVersion: '8.0.0'
+      timeField: '@timestamp'
+      logMessageField: message
+      logLevelField: level
+    editable: true
+    version: 1

@@ -1,0 +1,154 @@
+# ============================================
+# Prometheus Configuration
+# Bisheng Enterprise Monitoring
+# ============================================
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'bisheng-enterprise'
+    environment: 'production'
+
+# ============================================
+# Alertmanager Configuration
+# ============================================
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+      timeout: 10s
+      api_version: v2
+
+# ============================================
+# Rule Files
+# ============================================
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# ============================================
+# Scrape Configurations
+# ============================================
+scrape_configs:
+  # ============================================
+  # Prometheus Self-Monitoring
+  # ============================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+          - localhost:9090
+        labels:
+          service: 'prometheus'
+
+  # ============================================
+  # Bisheng Backend API
+  # ============================================
+  - job_name: 'bisheng-backend'
+    metrics_path: '/api/v1/metrics'
+    static_configs:
+      - targets:
+          - backend:7860
+        labels:
+          service: 'backend'
+          tier: 'application'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  - job_name: 'postgresql'
+    static_configs:
+      - targets:
+          - postgres-exporter:9187
+        labels:
+          service: 'postgresql'
+          tier: 'database'
+
+  # ============================================
+  # Redis Cache
+  # ============================================
+  - job_name: 'redis'
+    static_configs:
+      - targets:
+          - redis-exporter:9121
+        labels:
+          service: 'redis'
+          tier: 'cache'
+
+  # ============================================
+  # Elasticsearch
+  # ============================================
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets:
+          - elasticsearch:9200
+        labels:
+          service: 'elasticsearch'
+          tier: 'search'
+    metrics_path: '/_prometheus/metrics'
+    basic_auth:
+      username: 'elastic'
+      password: 'BiSheng@2024!ES#Secure'
+
+  # ============================================
+  # MinIO Object Storage
+  # ============================================
+  - job_name: 'minio'
+    metrics_path: /minio/v2/metrics/cluster
+    scheme: http
+    static_configs:
+      - targets:
+          - minio:9000
+        labels:
+          service: 'minio'
+          tier: 'storage'
+
+  # ============================================
+  # Milvus Vector Database
+  # ============================================
+  - job_name: 'milvus'
+    static_configs:
+      - targets:
+          - milvus:9091
+        labels:
+          service: 'milvus'
+          tier: 'vectordb'
+
+  # ============================================
+  # Node Exporter (if installed)
+  # ============================================
+  - job_name: 'node'
+    static_configs:
+      - targets:
+          - node-exporter:9100
+        labels:
+          service: 'node-exporter'
+          tier: 'infrastructure'
+
+  # ============================================
+  # cAdvisor Container Metrics
+  # ============================================
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets:
+          - cadvisor:8080
+        labels:
+          service: 'cadvisor'
+          tier: 'infrastructure'
+
+  # ============================================
+  # Nginx Metrics
+  # ============================================
+  - job_name: 'nginx'
+    static_configs:
+      - targets:
+          - nginx-exporter:9113
+        labels:
+          service: 'nginx'
+          tier: 'loadbalancer'

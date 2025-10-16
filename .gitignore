@@ -1,0 +1,53 @@
+# Environment files
+.env.production
+.env.local
+.env.*.local
+!.env.example
+!.env.development
+
+# Data & Logs
+data/postgresql/
+data/redis/
+data/milvus/
+data/elasticsearch/
+data/minio/
+data/backups/
+logs/
+*.log
+
+# SSL (keep structure only)
+ssl/*.pem
+ssl/*.key
+ssl/*.crt
+!ssl/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+env/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Docker
+*.tar
+
+# Temporary
+tmp/
+*.tmp
+*.bak
+
+# Backups
+*.sql.gz
+*.dump
+*.rdb

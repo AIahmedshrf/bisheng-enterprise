@@ -1,0 +1,109 @@
+# ============================================
+# Milvus Configuration
+# Bisheng Enterprise
+# ============================================
+
+# Cluster settings
+cluster:
+  enable: false
+
+# Etcd settings
+etcd:
+  endpoints:
+    - etcd:2379
+  rootPath: bisheng-milvus
+  metaSubPath: meta
+  kvSubPath: kv
+
+# MinIO/S3 settings
+minio:
+  address: minio
+  port: 9000
+  accessKeyID: bisheng_admin
+  secretAccessKey: BiSheng@2024!MinIO#Secure
+  useSSL: false
+  bucketName: milvus-bucket
+  rootPath: files
+
+# Storage settings
+localStorage:
+  path: /var/lib/milvus/data
+
+# Common settings
+common:
+  chanNamePrefix:
+    cluster: "bisheng-milvus"
+    rootCoordTimeTick: "rootcoord-timetick"
+    rootCoordStatistics: "rootcoord-statistics"
+    rootCoordDml: "rootcoord-dml"
+    rootCoordDelta: "rootcoord-delta"
+    search: "search"
+    searchResult: "searchResult"
+    queryTimeTick: "queryTimeTick"
+  
+  # Graceful stop timeout
+  gracefulStopTimeout: 30
+
+# Root coordinator settings
+rootCoord:
+  dmlChannelNum: 16
+  maxPartitionNum: 4096
+  minSegmentSizeToEnableIndex: 1024
+
+# Query node settings
+queryNode:
+  gracefulStopTimeout: 30
+  stats:
+    publishInterval: 1000
+  
+  # Cache settings
+  cacheSize: 33554432 # 32GB in bytes
+  
+  # Search settings
+  search:
+    receiveChannel: search
+    resultChannel: searchResult
+    topKLimit: 16384
+    searchListSize: 100
+
+# Index node settings
+indexNode:
+  scheduler:
+    buildParallel: 1
+
+# Data node settings
+dataNode:
+  flush:
+    insertBufSize: 16777216 # 16MB
+
+# Proxy settings
+proxy:
+  timeTickInterval: 200
+  msgStream:
+    timeTick:
+      bufSize: 512
+  
+  # Max size of each insert message
+  maxNameLength: 255
+  maxFieldNum: 256
+  maxDimension: 32768
+  
+  # HTTP server port
+  http:
+    enabled: true
+    port: 9091
+
+# Log settings
+log:
+  level: info
+  file:
+    rootPath: /var/lib/milvus/logs
+    maxSize: 300
+    maxAge: 10
+    maxBackups: 20
+  format: text
+
+# Metrics settings
+metrics:
+  port: 9091
+  enableProfiling: false
