@@ -1,21 +1,30 @@
-# Environment files
+# ============================================
+# Bisheng Enterprise - .gitignore
+# ============================================
+
+# Environment files with secrets
 .env.production
 .env.local
 .env.*.local
+
+# Keep example files
 !.env.example
 !.env.development
 
-# Data & Logs
+# Data directories
 data/postgresql/
 data/redis/
 data/milvus/
 data/elasticsearch/
 data/minio/
 data/backups/
+
+# Logs
 logs/
 *.log
+*.log.*
 
-# SSL (keep structure only)
+# SSL Certificates (keep example, ignore real ones)
 ssl/*.pem
 ssl/*.key
 ssl/*.crt
@@ -24,30 +33,69 @@ ssl/*.crt
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 venv/
 env/
-*.egg-info/
+ENV/
 
 # Node
 node_modules/
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+coverage/
+.npm
+.yarn-integrity
 
 # IDEs
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 .DS_Store
 
 # Docker
+.docker/
 *.tar
 
-# Temporary
+# Temporary files
 tmp/
+temp/
 *.tmp
 *.bak
+*.cache
 
-# Backups
+# OS
+Thumbs.db
+.DS_Store
+
+# Backups (keep structure)
 *.sql.gz
 *.dump
 *.rdb
+
+# Keep important directories
+!data/.gitkeep
+!logs/.gitkeep
+!ssl/.gitkeep
