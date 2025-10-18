@@ -1,0 +1,66 @@
+version: '3.8'
+
+networks:
+  bisheng-network:
+    external: true
+    name: bisheng-enterprise_bisheng-network
+
+volumes:
+  model-cache:
+
+services:
+  # ============================================
+  # Bisheng Backend (الصورة الأساسية مباشرة)
+  # ============================================
+  backend:
+    image: dataelement/bisheng-backend:v2.2.0-beta2
+    container_name: bisheng-backend
+    restart: unless-stopped
+    environment:
+      # Database
+      DATABASE_URL: "postgresql://bisheng_dev:dev_password_123@postgres:5432/bisheng_dev"
+      
+      # Redis
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/1"
+      
+      # Milvus
+      MILVUS_HOST: "milvus"
+      MILVUS_PORT: "19530"
+      
+      # Elasticsearch
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+      
+      # MinIO
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin123"
+      MINIO_BUCKET: "bisheng-dev"
+      
+      # Application
+      SECRET_KEY: "dev-secret-key-12345"
+      LOG_LEVEL: "INFO"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - model-cache:/app/cache
+    ports:
+      - "7860:7860"
+    networks:
+      - bisheng-network
+
+  # ============================================
+  # Bisheng Frontend (الصورة الأساسية مباشرة)
+  # ============================================
+  frontend:
+    image: dataelement/bisheng-frontend:v2.2.0-beta2
+    container_name: bisheng-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: "http://backend:7860"
+      NODE_ENV: "production"
+    ports:
+      - "3001:3001"
+    networks:
+      - bisheng-network
+    depends_on:
+      - backend
