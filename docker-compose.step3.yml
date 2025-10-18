@@ -1,0 +1,338 @@
+# ============================================
+# Bisheng Enterprise - Step 3: Complete System
+# جميع الخدمات + Backend + Frontend
+# ============================================
+version: '3.8'
+
+networks:
+  bisheng-network:
+    driver: bridge
+    name: bisheng-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  etcd-data:
+  milvus-data:
+  elasticsearch-data:
+
+services:
+  # ============================================
+  # 1. PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: bisheng-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bisheng_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-bisheng_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_123}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./configs/postgresql/init-scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - bisheng-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bisheng_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================
+  # 2. Redis Cache
+  # ============================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: bisheng-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - bisheng-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # 3. MinIO Object Storage
+  # ============================================
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: bisheng-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - bisheng-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+
+  # ============================================
+  # 4. Etcd (for Milvus)
+  # ============================================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: bisheng-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    volumes:
+      - etcd-data:/etcd
+    networks:
+      - bisheng-network
+    command: >
+      etcd
+      -advertise-client-urls=http://127.0.0.1:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ============================================
+  # 5. Milvus Vector Database
+  # ============================================
+  milvus:
+    image: milvusdb/milvus:v2.5.10
+    container_name: bisheng-milvus
+    restart: unless-stopped
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+    volumes:
+      - milvus-data:/var/lib/milvus
+      - ./configs/milvus/milvus.yaml:/milvus/configs/milvus.yaml:ro
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    networks:
+      - bisheng-network
+    command: ["milvus", "run", "standalone"]
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+
+  # ============================================
+  # 6. Elasticsearch
+  # ============================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: bisheng-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - bootstrap.memory_lock=false
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - bisheng-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ============================================
+  # 7. Backend API (Custom Build)
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: custom-images/backend/Dockerfile
+      args:
+        BASE_IMAGE: dataelement/bisheng-backend:v2.2.0-beta2
+    image: bisheng-backend-enterprise:latest
+    container_name: bisheng-backend
+    restart: unless-stopped
+    environment:
+      # Application
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-not-for-production}
+      
+      # Database
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-bisheng_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-bisheng_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_123}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://bisheng_dev:dev_password_123@postgres:5432/bisheng_dev}
+      
+      # Redis
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      
+      # Milvus
+      MILVUS_HOST: ${MILVUS_HOST:-milvus}
+      MILVUS_PORT: ${MILVUS_PORT:-19530}
+      
+      # Elasticsearch
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
+      ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      
+      # MinIO
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bisheng-dev}
+      
+      # Admin
+      BISHENG_ADMIN_USER: ${ADMIN_EMAIL:-admin@bisheng.local}
+      BISHENG_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      
+      # Workers
+      WORKERS: ${WORKERS:-4}
+      
+      # Development
+      RELOAD: ${RELOAD:-false}
+    volumes:
+      - ./logs/backend:/app/logs
+      - ./data/uploads:/app/uploads
+      - ./data/cache:/app/cache
+    ports:
+      - "7860:7860"
+    networks:
+      - bisheng-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ============================================
+  # 8. Celery Worker
+  # ============================================
+  worker:
+    build:
+      context: .
+      dockerfile: custom-images/backend/Dockerfile
+      args:
+        BASE_IMAGE: dataelement/bisheng-backend:v2.2.0-beta2
+    image: bisheng-backend-enterprise:latest
+    container_name: bisheng-worker
+    restart: unless-stopped
+    command: ["worker"]
+    environment:
+      # Application
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      
+      # Database
+      DATABASE_URL: ${DATABASE_URL:-postgresql://bisheng_dev:dev_password_123@postgres:5432/bisheng_dev}
+      
+      # Redis
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      
+      # Milvus
+      MILVUS_HOST: ${MILVUS_HOST:-milvus}
+      MILVUS_PORT: ${MILVUS_PORT:-19530}
+      
+      # Elasticsearch
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      
+      # MinIO
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bisheng-dev}
+      
+      # Celery
+      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-4}
+    volumes:
+      - ./logs/worker:/app/logs
+      - ./data/uploads:/app/uploads
+      - ./data/cache:/app/cache
+    networks:
+      - bisheng-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  # ============================================
+  # 9. Frontend
+  # ============================================
+  frontend:
+    image: dataelement/bisheng-frontend:v2.2.0-beta2
+    container_name: bisheng-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:7860
+      API_URL: http://localhost:7860
+      NODE_ENV: production
+    ports:
+      - "3001:3001"
+    networks:
+      - bisheng-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

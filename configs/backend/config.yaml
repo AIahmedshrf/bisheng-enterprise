@@ -1,0 +1,280 @@
+# ============================================
+# Bisheng Backend Configuration
+# Development Environment
+# ============================================
+
+# Application Settings
+app:
+  name: "Bisheng Enterprise"
+  version: "2.2.0"
+  environment: "development"
+  debug: true
+  log_level: "INFO"
+  host: "0.0.0.0"
+  port: 7860
+  workers: 4
+  reload: false
+  cors_origins:
+    - "http://localhost:3001"
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3001"
+    - "*"
+
+# Database Configuration
+database:
+  host: "postgres"
+  port: 5432
+  name: "bisheng_dev"
+  user: "bisheng_dev"
+  password: "dev_password_123"
+  pool_size: 20
+  max_overflow: 10
+  pool_recycle: 3600
+  echo: false
+  
+# Redis Configuration
+redis:
+  host: "redis"
+  port: 6379
+  db: 0
+  password: ""
+  max_connections: 50
+  socket_timeout: 5
+  socket_connect_timeout: 5
+
+# Celery Configuration
+celery:
+  broker_url: "redis://redis:6379/1"
+  result_backend: "redis://redis:6379/2"
+  task_serializer: "json"
+  result_serializer: "json"
+  accept_content: ["json"]
+  timezone: "UTC"
+  enable_utc: true
+  worker_concurrency: 4
+  worker_max_tasks_per_child: 1000
+  task_track_started: true
+  task_time_limit: 3600
+  task_soft_time_limit: 3000
+
+# Milvus Configuration (Vector Database)
+milvus:
+  host: "milvus"
+  port: 19530
+  user: ""
+  password: ""
+  secure: false
+  timeout: 30
+  collection_name: "bisheng_embeddings"
+  index_type: "IVF_FLAT"
+  metric_type: "L2"
+  nlist: 1024
+  nprobe: 10
+
+# Elasticsearch Configuration
+elasticsearch:
+  hosts:
+    - "http://elasticsearch:9200"
+  username: ""
+  password: ""
+  verify_certs: false
+  ssl_show_warn: false
+  timeout: 30
+  max_retries: 3
+  retry_on_timeout: true
+  index_prefix: "bisheng"
+
+# MinIO Configuration (Object Storage)
+minio:
+  endpoint: "minio:9000"
+  access_key: "minioadmin"
+  secret_key: "minioadmin123"
+  bucket: "bisheng-dev"
+  secure: false
+  region: "us-east-1"
+  create_bucket_if_not_exists: true
+
+# Security Settings
+security:
+  secret_key: "dev-secret-key-not-for-production-change-in-prod"
+  algorithm: "HS256"
+  access_token_expire_minutes: 60
+  refresh_token_expire_days: 7
+  password_min_length: 8
+  password_require_special: false
+  max_login_attempts: 5
+  lockout_duration_minutes: 15
+
+# Admin User (Auto-created on first run)
+admin:
+  email: "admin@bisheng.local"
+  password: "admin123"
+  username: "admin"
+  full_name: "Bisheng Administrator"
+
+# File Upload Settings
+upload:
+  max_file_size: 104857600  # 100MB
+  allowed_extensions:
+    - "pdf"
+    - "doc"
+    - "docx"
+    - "txt"
+    - "md"
+    - "csv"
+    - "xlsx"
+    - "xls"
+    - "ppt"
+    - "pptx"
+    - "png"
+    - "jpg"
+    - "jpeg"
+    - "gif"
+    - "mp3"
+    - "mp4"
+    - "wav"
+  upload_dir: "/app/uploads"
+  temp_dir: "/app/temp"
+
+# OCR Settings
+ocr:
+  enabled: true
+  engine: "tesseract"
+  languages:
+    - "eng"
+    - "ara"
+    - "chi_sim"
+    - "fra"
+    - "deu"
+    - "spa"
+  dpi: 300
+  timeout: 60
+
+# Embeddings Settings
+embeddings:
+  default_model: "paraphrase-multilingual-MiniLM-L12-v2"
+  models:
+    - name: "paraphrase-multilingual-MiniLM-L12-v2"
+      dimension: 384
+      max_length: 512
+    - name: "all-MiniLM-L6-v2"
+      dimension: 384
+      max_length: 256
+  batch_size: 32
+  cache_dir: "/app/cache/embeddings"
+
+# LLM Settings (AI Models)
+llm:
+  default_provider: "openai"
+  providers:
+    openai:
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-3.5-turbo"
+      temperature: 0.7
+      max_tokens: 2000
+      timeout: 60
+    anthropic:
+      api_key: "${ANTHROPIC_API_KEY}"
+      model: "claude-2"
+      temperature: 0.7
+      max_tokens: 2000
+    local:
+      enabled: false
+      model_path: "/app/models/llm"
+
+# RAG (Retrieval-Augmented Generation) Settings
+rag:
+  chunk_size: 1000
+  chunk_overlap: 200
+  top_k: 5
+  similarity_threshold: 0.7
+  rerank: true
+  rerank_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+# Monitoring & Logging
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+  opentelemetry:
+    enabled: false
+    endpoint: ""
+  health_check:
+    enabled: true
+    path: "/api/v1/health"
+
+logging:
+  level: "INFO"
+  format: "json"
+  output: "stdout"
+  file:
+    enabled: true
+    path: "/app/logs/bisheng.log"
+    max_size: 104857600  # 100MB
+    backup_count: 10
+    rotation: "daily"
+
+# Feature Flags
+features:
+  enable_registration: true
+  enable_social_login: false
+  enable_2fa: false
+  enable_api_keys: true
+  enable_webhooks: false
+  enable_analytics: true
+  enable_experiments: false
+
+# Rate Limiting
+rate_limit:
+  enabled: true
+  default_limit: "100/minute"
+  burst_limit: "200/minute"
+  storage: "redis"
+
+# Cache Settings
+cache:
+  enabled: true
+  backend: "redis"
+  default_timeout: 300
+  key_prefix: "bisheng:"
+
+# Background Tasks
+tasks:
+  document_processing:
+    enabled: true
+    queue: "document"
+    priority: 5
+  embedding_generation:
+    enabled: true
+    queue: "embedding"
+    priority: 3
+  cleanup:
+    enabled: true
+    queue: "cleanup"
+    priority: 1
+    schedule: "0 2 * * *"  # Daily at 2 AM
+
+# Localization
+localization:
+  default_language: "en"
+  supported_languages:
+    - "en"
+    - "ar"
+    - "zh"
+  timezone: "UTC"
+
+# Development Settings (Only for development)
+development:
+  auto_reload: true
+  debug_toolbar: true
+  profiling: false
+  fake_auth: false
+  seed_data: false
+
+# Production Settings (Ignored in development)
+production:
+  ssl_enabled: false
+  hsts_enabled: false
+  secure_cookies: false
+  csrf_protection: true
+  sql_echo: false

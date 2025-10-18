@@ -53,11 +53,6 @@ if [ -n "$REDIS_HOST" ]; then
     wait_for_service "$REDIS_HOST" "${REDIS_PORT:-6379}" "Redis"
 fi
 
-# Wait for Milvus
-if [ -n "$MILVUS_HOST" ]; then
-    wait_for_service "$MILVUS_HOST" "${MILVUS_PORT:-19530}" "Milvus"
-fi
-
 # Wait for Elasticsearch
 if [ -n "$ELASTICSEARCH_HOST" ]; then
     wait_for_service "$ELASTICSEARCH_HOST" "${ELASTICSEARCH_PORT:-9200}" "Elasticsearch"
@@ -81,21 +76,6 @@ if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
 fi
 
 # ============================================
-# Initialize Admin User
-# ============================================
-if [ -n "$BISHENG_ADMIN_USER" ] && [ -n "$BISHENG_ADMIN_PASSWORD" ]; then
-    echo -e "${YELLOW}Initializing admin user...${NC}"
-    python -c "
-from bisheng.database import init_admin_user
-try:
-    init_admin_user('$BISHENG_ADMIN_USER', '$BISHENG_ADMIN_PASSWORD')
-    print('Admin user initialized')
-except Exception as e:
-    print(f'Admin initialization: {e}')
-" 2>/dev/null || echo -e "${YELLOW}⚠ Admin initialization skipped${NC}"
-fi
-
-# ============================================
 # Start Application
 # ============================================
 echo -e "${BLUE}"
@@ -105,6 +85,9 @@ echo "  Mode: ${1:-api}"
 echo "============================================"
 echo -e "${NC}"
 
+# Convert LOG_LEVEL to lowercase for uvicorn
+LOG_LEVEL_LOWER=$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')
+
 case "${1:-api}" in
     api)
         echo -e "${GREEN}Starting API server...${NC}"
@@ -113,13 +96,13 @@ case "${1:-api}" in
             --port 7860 \
             --workers ${WORKERS:-4} \
             --loop uvloop \
-            --log-level ${LOG_LEVEL:-info}
+            --log-level "$LOG_LEVEL_LOWER"
         ;;
     
     worker)
         echo -e "${GREEN}Starting Celery worker...${NC}"
         exec celery -A bisheng.worker worker \
-            --loglevel=${LOG_LEVEL:-info} \
+            --loglevel="$LOG_LEVEL_LOWER" \
             --concurrency=${CELERY_WORKER_CONCURRENCY:-4} \
             --max-tasks-per-child=${CELERY_MAX_TASKS_PER_CHILD:-1000}
         ;;
@@ -127,7 +110,7 @@ case "${1:-api}" in
     beat)
         echo -e "${GREEN}Starting Celery beat...${NC}"
         exec celery -A bisheng.worker beat \
-            --loglevel=${LOG_LEVEL:-info}
+            --loglevel="$LOG_LEVEL_LOWER"
         ;;
     
     flower)
