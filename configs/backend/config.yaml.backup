@@ -1,0 +1,19 @@
+# Bisheng Backend - Minimal Config
+database:
+  url: "postgresql://bisheng_dev:dev_password_123@bisheng-postgres:5432/bisheng_dev"
+
+redis:
+  url: "redis://bisheng-redis:6379/0"
+
+minio:
+  endpoint: "bisheng-minio:9000"
+  access_key: "minioadmin"
+  secret_key: "minioadmin123"
+  bucket: "bisheng-dev"
+  secure: false
+
+elasticsearch:
+  url: "http://bisheng-elasticsearch:9200"
+
+security:
+  secret_key: "dev-secret-key"

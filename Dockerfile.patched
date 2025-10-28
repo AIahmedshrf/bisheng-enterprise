@@ -1,0 +1,13 @@
+FROM dataelement/bisheng-backend:v2.2.0-beta2
+
+WORKDIR /app
+
+# تعديل settings.py لتجاهل config.yaml تماماً
+RUN sed -i '397,410d' /app/bisheng/settings.py && \
+    sed -i '472s/settings = load_settings_from_yaml(config_file)/settings = Settings()  # Patched/' /app/bisheng/settings.py
+
+# إنشاء config.yaml فارغ minimal
+RUN echo "{}" > /app/bisheng/config.yaml
+
+ENTRYPOINT ["/bin/bash"]
+CMD ["/app/entrypoint.sh"]

@@ -1,0 +1,15 @@
+FROM dataelement/bisheng-backend:v2.2.0-beta2
+
+# إصلاح المسار وإضافة config.yaml
+WORKDIR /app
+
+# نسخ config.yaml
+COPY configs/backend/config.yaml /app/bisheng/config.yaml
+
+# إصلاح الصلاحيات
+RUN chmod +x /app/entrypoint.sh && \
+    chmod 644 /app/bisheng/config.yaml
+
+# استخدام المسار الكامل
+ENTRYPOINT ["/bin/bash"]
+CMD ["/app/entrypoint.sh"]

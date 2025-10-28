@@ -1,0 +1,11 @@
+FROM dataelement/bisheng-backend:v2.2.0-beta2
+
+WORKDIR /app
+
+# نسخ config.yaml فارغ فقط لإرضاء التطبيق
+COPY configs/backend/config.yaml /app/bisheng/config.yaml
+
+RUN chmod 644 /app/bisheng/config.yaml
+
+ENTRYPOINT ["/bin/bash"]
+CMD ["/app/entrypoint.sh"]
